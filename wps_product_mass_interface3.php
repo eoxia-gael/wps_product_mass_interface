@@ -25,8 +25,10 @@ class mass_interface3 {
 		'price_behaviour',
 	);
 	public function __construct() {
-		add_action( 'init', array( $this, 'mass_init' ) );
+		add_action( 'admin_menu', array( $this, 'mass_init' ), 350 );
 		add_action( 'wp_ajax_wps_mass_3_new', array( $this, 'ajax_new' ) );
+		add_action( 'wp_ajax_wps_mass_3_save', array( $this, 'ajax_save' ) );
+		add_action( 'admin_notices', array( $this, 'ajax_admin_notice' ) );
 	}
 	public function mass_init() {
 		$hook = add_submenu_page( 'edit.php?post_type=' . WPSHOP_NEWTYPE_IDENTIFIER_PRODUCT, __( 'Mass product edit 3', 'wpshop' ), __( 'Mass product edit 3', 'wpshop' ), 'manage_options', 'mass_edit_interface3', array( $this, 'mass_interface' ) );
@@ -44,7 +46,7 @@ class mass_interface3 {
 		?></h1>
 		<?php
 		if ( current_user_can( $this->post_type_object->cap->create_posts ) ) {
-			echo ' <a href="' . esc_url( admin_url( $post_new_file ) ) . '" class="page-title-action" onclick="addPost(event, this)">' . esc_html( $this->post_type_object->labels->add_new ) . '</a>';
+			echo ' <a href="#" class="page-title-action" onclick="addPost(event, this)">' . esc_html( $this->post_type_object->labels->add_new ) . '</a>';
 		}
 		?>
 		<hr class="wp-header-end">
@@ -52,7 +54,8 @@ class mass_interface3 {
 		<?php $this->wp_list_table->views(); ?>
 		<?php $this->wp_list_table->search_box( $this->post_type_object->labels->search_items, 'post' ); ?>
 		<?php $screen = get_current_screen(); ?>
-		<input type="hidden" name="page" value="<?php echo $screen->parent_base; ?>">
+		<input type="hidden" name="page" value="mass_edit_interface3">
+		<input type="hidden" name="post_type" value="<?php echo WPSHOP_NEWTYPE_IDENTIFIER_PRODUCT; ?>">
 		</form>
 		<?php $this->wp_list_table->display(); ?>
 		<table style="display:none;">
@@ -86,6 +89,7 @@ class mass_interface3 {
 		$this->post_type_object = get_post_type_object( WPSHOP_NEWTYPE_IDENTIFIER_PRODUCT );
 		$this->wp_list_table = new WPS_Mass_List_Table( array(
 			'screen' => $this->post_type_object->name,
+			'exclude_attribute_codes' => $this->exclude_attribute_codes,
 		) );
 		$this->wp_list_table->show_columns = $this->show_columns;
 		$this->wp_list_table->screen->set_screen_reader_content( array(
@@ -93,40 +97,61 @@ class mass_interface3 {
 			'heading_pagination' => $this->post_type_object->labels->items_list_navigation,
 			'heading_list'       => $this->post_type_object->labels->items_list,
 		) );
-		$this->wp_list_table->screen->add_option( 'per_page', array( 'default' => 20, 'option' => "edit_{$this->post_type_object->name}_per_page" ) );
+		$this->wp_list_table->screen->add_option( 'per_page', array(
+			'default' => 20,
+			'option' => "edit_{$this->post_type_object->name}_per_page",
+		) );
 	}
 	public function hidden_columns( $hidden, $screen ) {
-		if( $screen == $this->wp_list_table->screen ) {
+		if ( $screen == $this->wp_list_table->screen ) {
 			$hidden = array_diff( array_flip( $this->wp_list_table->get_columns() ), $this->show_columns );
 		}
 		return $hidden;
 	}
+	public function ajax_admin_notice() {
+		printf( '<div class="%1$s"><p></p></div>', esc_attr( 'hidden is-dismissible notice' ) );
+	}
 	public function ajax_scripts() {
 		wp_enqueue_script(
-			'mass_interface3-ajax', plugin_dir_url( __FILE__ ).'interface3.js',
+			'mass_interface3-ajax', plugin_dir_url( __FILE__ ) . 'interface3.js',
 			array( 'jquery' ),
 			true
 		);
 	}
 	public function ajax_new() {
+		$this->post_type_object = get_post_type_object( WPSHOP_NEWTYPE_IDENTIFIER_PRODUCT );
+		$this->wp_list_table = new WPS_Mass_List_Table( array(
+			'screen' => $this->post_type_object->name,
+			'exclude_attribute_codes' => $this->exclude_attribute_codes,
+		) );
+		$wpshop_product_attribute = array();
+		foreach ( $this->wp_list_table->request_items_columns() as $key_var => $var ) {
+			$wpshop_product_attribute[ $var['data'] ][ $key_var ] = null;
+		}
 		$new_product_id = wp_insert_post( array(
 				'post_type' => WPSHOP_NEWTYPE_IDENTIFIER_PRODUCT,
 				'post_status' => 'publish',
 				'post_title' => $_POST['title'],
 		) );
-		if ( !empty( $new_product_id ) ) {
-			$product_attribute_set_id = ( !empty( $_POST['attributes_set'] ) ) ? intval( $_POST['attributes_set'] ) : 1;
+		if ( ! empty( $new_product_id ) ) {
+			$product_attribute_set_id = ( ! empty( $_POST['attributes_set'] ) ) ? intval( $_POST['attributes_set'] ) : 1;
 			update_post_meta( $new_product_id, '_' . WPSHOP_NEWTYPE_IDENTIFIER_PRODUCT . '_attribute_set_id', $product_attribute_set_id );
+			$product_class = new wpshop_products();
+			$product_class->save_product_custom_informations( $new_product_id, array(
+				'post_ID' => $new_product_id,
+				'product_id' => $new_product_id,
+				'wpshop_product_attribute' => $wpshop_product_attribute,
+				'user_ID' => get_current_user_id(),
+				'action' => 'editpost',
+			) );
 		} else {
 			wp_die( 1 );
 		}
-		$this->post_type_object = get_post_type_object( WPSHOP_NEWTYPE_IDENTIFIER_PRODUCT );
-		$this->wp_list_table = new WPS_Mass_List_Table( array(
-			'screen' => $this->post_type_object->name,
-		) );
 		$per_page = $this->wp_list_table->get_items_per_page( 'edit_' . $this->wp_list_table->screen->post_type . '_per_page' );
 		$this->wp_list_table->show_columns = $this->show_columns;
-		$data = $this->wp_list_table->request( $this->exclude_attribute_codes, $new_product_id );
+		$data = $this->wp_list_table->request( $new_product_id );
+		$this->wp_list_table->column_headers();
+		$this->wp_list_table->items = true;
 		ob_start();
 		$this->wp_list_table->views();
 		$subsubsub = ob_get_clean();
@@ -139,7 +164,40 @@ class mass_interface3 {
 		add_filter( 'default_hidden_columns', array( $this, 'hidden_columns' ), 10, 2 );
 		ob_start();
 		$this->wp_list_table->single_row( $data[0] );
-		wp_send_json_success( array( 'row' => ob_get_clean(), 'per_page' => $per_page, 'tablenav_top' => $tablenav_top, 'tablenav_bottom' => $tablenav_bottom, 'subsubsub' => $subsubsub ) );
+		wp_send_json_success( array(
+			'row' => ob_get_clean(),
+			'per_page' => $per_page,
+			'tablenav_top' => $tablenav_top,
+			'tablenav_bottom' => $tablenav_bottom,
+			'subsubsub' => $subsubsub,
+		) );
+	}
+	public function ajax_save() {
+		$i = 0;
+		$product_class = new wpshop_products();
+		if ( ! empty( $_REQUEST['cb'] ) ) {
+			foreach ( $_REQUEST['cb'] as $id ) {
+				$id = intval( $id );
+				if ( ! empty( $_REQUEST[ 'row_' . $id ] ) ) {
+					$product_class->save_product_custom_informations(
+						$id,
+						array_merge(
+							$_REQUEST[ 'row_' . $id ],
+							array(
+								'post_ID' => $id,
+								'product_id' => $id,
+								'user_ID' => get_current_user_id(),
+								'action' => 'editpost',
+							)
+						)
+					);
+					$i++;
+				}
+			}
+		}
+		wp_send_json_success( array(
+			'notice' => "{$i} rows has been updated",
+		) );
 	}
 }
 class WPS_Mass_List_Table extends WP_List_Table {
@@ -148,10 +206,13 @@ class WPS_Mass_List_Table extends WP_List_Table {
 	public $show_columns = array();
 	public $screen;
 	public $entity_id;
-	public $exclude_attribute_codes;
+	public $exclude_attribute_codes = array();
 	public $current_view = null;
 	private $_views = null;
 	public function __construct( $args ) {
+		if ( isset( $args['exclude_attribute_codes'] ) ) {
+			$this->exclude_attribute_codes = $args['exclude_attribute_codes'];
+		}
 		parent::__construct( array(
 			'plural'	=> 'posts',
 			'ajax'		=> true,
@@ -165,7 +226,7 @@ class WPS_Mass_List_Table extends WP_List_Table {
 			'cb'       => '<input type="checkbox" />',
 			'title'    => __( 'Title' ),
 		);
-		foreach ( $this->columns_items as $column => $data_column ) {
+		foreach ( $this->request_items_columns() as $column => $data_column ) {
 			$columns[ $column ] = $data_column['name'];
 		}
 		return $columns;
@@ -174,7 +235,7 @@ class WPS_Mass_List_Table extends WP_List_Table {
 		$sortable_columns = array(
 			'title'    => array( 'title', false ),
 		);
-		foreach ( $this->columns_items as $column => $data_column ) {
+		foreach ( $this->request_items_columns() as $column => $data_column ) {
 			$sortable_columns[ $column ] = array( $data_column['code'], false );
 		}
 		return $sortable_columns;
@@ -184,6 +245,7 @@ class WPS_Mass_List_Table extends WP_List_Table {
 			return call_user_func( array( $this, "column_data_{$this->columns_items[ $column_name ]['type']}" ),
 				$this->columns_items[ $column_name ]['id'],
 				$this->columns_items[ $column_name ]['code'],
+				$this->columns_items[ $column_name ]['data'],
 				$item
 			);
 		}
@@ -191,8 +253,7 @@ class WPS_Mass_List_Table extends WP_List_Table {
 	}
 	public function column_cb( $item ) {
 		return sprintf(
-			'<input type="checkbox" name="%1$s[]" value="%2$s" />',
-			$this->_args['singular'],
+			'<input type="checkbox" name="cb[]" value="%d" />',
 			$item['ID']
 		);
 	}
@@ -204,7 +265,7 @@ class WPS_Mass_List_Table extends WP_List_Table {
 			$item['title']
 		);
 	}
-	public function column_data_text( $attribute_id, $attribute_code, $item ) {
+	public function column_data_text( $attribute_id, $attribute_code, $attribute_data, $item ) {
 		$unit = '';
 		if ( is_array( $item[ $attribute_code ] ) ) {
 			$unit = ' ' . $item[ $attribute_code ]['unit'];
@@ -213,14 +274,15 @@ class WPS_Mass_List_Table extends WP_List_Table {
 			$value = $item[ $attribute_code ];
 		}
 		return sprintf(
-			'<input type="text" name="%1$s[%2$s]" value="%3$s">%4$s',
+			'<input type="text" name="row_%2$s[wpshop_product_attribute][%3$s][%1$s]" value="%4$s">%5$s',
 			$attribute_code,
 			$item['ID'],
+			$attribute_data,
 			$value,
 			$unit
 		);
 	}
-	public function column_data_select( $attribute_id, $attribute_code, $item ) {
+	public function column_data_select( $attribute_id, $attribute_code, $attribute_data, $item ) {
 		$unit = '';
 		if ( is_array( $item[ $attribute_code ] ) ) {
 			$unit = ' ' . $item[ $attribute_code ]['unit'];
@@ -229,13 +291,20 @@ class WPS_Mass_List_Table extends WP_List_Table {
 			$value = $item[ $attribute_code ];
 		}
 		$select_items = array();
-		foreach ( $this->get_select_items_option( $attribute_id ) as $item ) {
-			$select_items[] = "<option value=\"{$item['id']}\"" . selected( $value, $item['id'], false ) . ">{$item['label']}</option>";
+		foreach ( $this->get_select_items_option( $attribute_id ) as $option_item ) {
+			$select_items[] = "<option value=\"{$option_item['id']}\"" . selected( $value, $option_item['id'], false ) . ">{$option_item['label']}</option>";
 		}
 		$select_items = implode( '', $select_items );
-		return "<select name='{$attribute_code}[{$item['ID']}]'>{$select_items}</select>{$unit}";
+		return sprintf(
+			'<select name="row_%2$s[wpshop_product_attribute][%3$s][%1$s]">%4$s</select>%5$s',
+			$attribute_code,
+			$item['ID'],
+			$attribute_data,
+			$select_items,
+			$unit
+		);
 	}
-	public function request( $exclude_attribute_codes, $id_post = null ) {
+	public function request( $id_post = null ) {
 		global $wpdb;
 		$per_page = $this->get_items_per_page( 'edit_' . $this->screen->post_type . '_per_page' );
 		$exclude_states = get_post_stati( array(
@@ -247,10 +316,16 @@ class WPS_Mass_List_Table extends WP_List_Table {
 		$orderby = isset( $_REQUEST['orderby'] ) ? esc_sql( $_REQUEST['orderby'] ) : 'p.post_date';
 		$order = isset( $_REQUEST['order'] ) ? esc_sql( $_REQUEST['order'] ) : 'DESC';
 		$s = isset( $_REQUEST['s'] ) ? esc_sql( $_REQUEST['s'] ) : '';
-		$this->exclude_attribute_codes = $exclude_attribute_codes;
-		$exclude_attribute_codes = implode( "','", $exclude_attribute_codes );
+		$exclude_attribute_codes = implode( "','", $this->exclude_attribute_codes );
 		$extra = '';
 		$items_count = $wpdb->prepare( "SELECT FOUND_ROWS() FROM {$wpdb->posts} WHERE 1 = %d", 1 );
+		if ( ! is_null( $id_post ) ) {
+			$id_post = intval( $id_post );
+			$extra = "
+			AND p.ID = {$id_post}";
+			$items_count = $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->posts} p WHERE p.post_status NOT IN ( '{$exclude_states}' ) AND p.post_type = %s", $this->screen->post_type );
+			$s = '';
+		}
 		$wpsdb_attribute = WPSHOP_DBT_ATTRIBUTE;
 		$wpsdb_attribute_set = WPSHOP_DBT_ATTRIBUTE_DETAILS;
 		$wpsdb_unit = WPSHOP_DBT_ATTRIBUTE_UNIT;
@@ -259,11 +334,26 @@ class WPS_Mass_List_Table extends WP_List_Table {
 		$wpsdb_values_integer = WPSHOP_DBT_ATTRIBUTE_VALUES_INTEGER;
 		$wpsdb_values_varchar = WPSHOP_DBT_ATTRIBUTE_VALUES_VARCHAR;
 		$wpsdb_values_text = WPSHOP_DBT_ATTRIBUTE_VALUES_TEXT;
-		if ( ! is_null( $id_post ) ) {
-			$id_post = intval( $id_post );
-			$extra = "AND p.ID = {$id_post}";
-			$items_count = $wpdb->prepare( "SELECT COUNT(*) FROM {$wpdb->posts} p WHERE p.post_status NOT IN ( '{$exclude_states}' ) AND p.post_type = %s", $this->screen->post_type );
-			$s = '';
+		$wpsdb_values_options = WPSHOP_DBT_ATTRIBUTE_VALUES_OPTIONS;
+		$extra_select = '';
+		if ( ! in_array( $orderby, array( 'p.post_date', 'title', 'ID' ) ) ) {
+			$extra_select = ",
+			(SELECT CONCAT(
+			    IFNULL( {$wpsdb_values_decimal}.value, '' ),
+			    IFNULL( {$wpsdb_values_datetime}.value, '' ),
+			    IFNULL( {$wpsdb_values_text}.value, '' ),
+			    IFNULL( {$wpsdb_values_varchar}.value, '' ),
+			    IFNULL( {$wpsdb_values_options}.value, IFNULL( {$wpsdb_values_integer}.value, '' ) )
+			)
+			FROM wp_posts p1
+			LEFT JOIN {$wpsdb_attribute} ON {$wpsdb_attribute}.status = 'valid' AND {$wpsdb_attribute}.code = '{$orderby}'
+			LEFT JOIN {$wpsdb_values_decimal} ON {$wpsdb_values_decimal}.attribute_id = {$wpsdb_attribute}.id AND {$wpsdb_values_decimal}.entity_id = p1.ID
+			LEFT JOIN {$wpsdb_values_datetime} ON {$wpsdb_values_datetime}.attribute_id = {$wpsdb_attribute}.id AND {$wpsdb_values_datetime}.entity_id = p1.ID
+			LEFT JOIN {$wpsdb_values_integer} ON {$wpsdb_values_integer}.attribute_id = {$wpsdb_attribute}.id AND {$wpsdb_values_integer}.entity_id = p1.ID
+			LEFT JOIN {$wpsdb_values_text} ON {$wpsdb_values_text}.attribute_id = {$wpsdb_attribute}.id AND {$wpsdb_values_text}.entity_id = p1.ID
+			LEFT JOIN {$wpsdb_values_varchar} ON {$wpsdb_values_varchar}.attribute_id = {$wpsdb_attribute}.id AND {$wpsdb_values_varchar}.entity_id = p1.ID
+			LEFT JOIN {$wpsdb_values_options} ON {$wpsdb_values_options}.attribute_id = {$wpsdb_attribute}.id AND {$wpsdb_values_options}.id = {$wpsdb_values_integer}.value
+			WHERE p1.ID = p.ID) AS {$orderby}";
 		}
 		$datas = $wpdb->get_results(
 			$wpdb->prepare(
@@ -285,13 +375,14 @@ class WPS_Mass_List_Table extends WP_List_Table {
 						), ':',
 						{$wpsdb_attribute}.is_requiring_unit, ':',
 						IFNULL( {$wpsdb_unit}.unit, '' ), ':',
-						{$wpsdb_attribute}.frontend_input
+						{$wpsdb_attribute}.frontend_input, ':',
+						{$wpsdb_attribute}.data_type
 					) SEPARATOR ';'
-				) as data
+				) as data{$extra_select}
 				FROM {$wpdb->posts} p
 				INNER JOIN {$wpdb->postmeta} ON {$wpdb->postmeta}.post_id = p.ID AND {$wpdb->postmeta}.meta_key = %s AND {$wpdb->postmeta}.meta_value = %d
 				LEFT JOIN {$wpsdb_attribute_set} ON {$wpsdb_attribute_set}.status = 'valid' AND {$wpsdb_attribute_set}.entity_type_id = %d AND {$wpsdb_attribute_set}.attribute_set_id = %d
-				LEFT JOIN {$wpsdb_attribute} ON {$wpsdb_attribute}.status = 'valid' AND {$wpsdb_attribute}.entity_id = %d AND {$wpsdb_attribute}.code NOT IN ( '{$exclude_attribute_codes}' ) AND wp_wpshop__attribute.id = wp_wpshop__attribute_set_section_details.attribute_id
+				LEFT JOIN {$wpsdb_attribute} ON {$wpsdb_attribute}.status = 'valid' AND {$wpsdb_attribute}.entity_id = %d AND {$wpsdb_attribute}.code NOT IN ( '{$exclude_attribute_codes}' ) AND {$wpsdb_attribute}.id = {$wpsdb_attribute_set}.attribute_id
 				LEFT JOIN {$wpsdb_values_decimal} ON {$wpsdb_values_decimal}.attribute_id = {$wpsdb_attribute}.id AND {$wpsdb_values_decimal}.entity_id = p.ID
 				LEFT JOIN {$wpsdb_values_datetime} ON {$wpsdb_values_datetime}.attribute_id = {$wpsdb_attribute}.id AND {$wpsdb_values_datetime}.entity_id = p.ID
 				LEFT JOIN {$wpsdb_values_integer} ON {$wpsdb_values_integer}.attribute_id = {$wpsdb_attribute}.id AND {$wpsdb_values_integer}.entity_id = p.ID
@@ -306,8 +397,7 @@ class WPS_Mass_List_Table extends WP_List_Table {
 				)
 				WHERE p.post_status NOT IN ( '{$exclude_states}' )
 				AND p.post_type IN ( '{$post_types}' )
-				AND p.post_title LIKE %s
-				{$extra}
+				AND p.post_title LIKE %s{$extra}
 				GROUP BY p.ID
 				ORDER BY {$orderby} {$order}
 				LIMIT %d, %d",
@@ -333,14 +423,15 @@ class WPS_Mass_List_Table extends WP_List_Table {
 		}
 		return array_map( array( $this, 'data_reorganize' ), $datas );
 	}
-	public function prepare_items( $exclude_attribute_codes ) {
+	public function prepare_items() {
 		global $wpdb;
-		foreach ( $this->request( $exclude_attribute_codes ) as $item ) {
+		foreach ( $this->request() as $item ) {
 			$this->items[ $item['ID'] ] = $item;
 		}
-		$columns = $this->get_columns();
-		$sortable = $this->get_sortable_columns();
-		$this->_column_headers = array( $columns, array_diff( array_flip( $this->get_columns() ), $this->show_columns ), $sortable );
+		$this->column_headers();
+	}
+	public function column_headers() {
+		$this->_column_headers = array( $this->get_columns(), array_diff( array_flip( $this->get_columns() ), $this->show_columns ), $this->get_sortable_columns() );
 	}
 	public function data_reorganize( $item ) {
 		$values = explode( ';', $item['data'] );
@@ -352,6 +443,7 @@ class WPS_Mass_List_Table extends WP_List_Table {
 					'code' => $value[1],
 					'name' => $value[2],
 					'type' => $value[6],
+					'data' => $value[7],
 				);
 			}
 			if ( 'yes' === $value[4] ) {
@@ -420,14 +512,42 @@ class WPS_Mass_List_Table extends WP_List_Table {
 		}
 		return $this->current_view;
 	}
+	public function request_items_columns() {
+		if ( empty( $this->columns_items ) ) {
+			global $wpdb;
+			$wpsdb_attribute = WPSHOP_DBT_ATTRIBUTE;
+			$wpsdb_attribute_set = WPSHOP_DBT_ATTRIBUTE_DETAILS;
+			$exclude_attribute_codes = implode( "','", $this->exclude_attribute_codes );
+			foreach ( $wpdb->get_results(
+				$wpdb->prepare( "SELECT {$wpsdb_attribute}.id, {$wpsdb_attribute}.code, {$wpsdb_attribute}.frontend_label AS name, {$wpsdb_attribute}.frontend_input AS type, {$wpsdb_attribute}.data_type AS data
+					FROM {$wpsdb_attribute}
+					LEFT JOIN {$wpsdb_attribute_set} ON {$wpsdb_attribute_set}.status = 'valid' AND {$wpsdb_attribute_set}.entity_type_id = %d AND {$wpsdb_attribute_set}.attribute_set_id = %d
+					WHERE {$wpsdb_attribute}.status = 'valid'
+					AND {$wpsdb_attribute}.entity_id = %d
+					AND {$wpsdb_attribute}.code NOT IN ( '{$exclude_attribute_codes}' )
+					AND {$wpsdb_attribute}.id = {$wpsdb_attribute_set}.attribute_id",
+					$this->entity_id,
+					$this->request_current_view(),
+					$this->entity_id
+				),
+				ARRAY_A
+			) as $column ) {
+				$this->columns_items[ $column['code'] ] = $column;
+			}
+		}
+		ksort( $this->columns_items );
+		return $this->columns_items;
+	}
 	public function get_views() {
 		$result = array();
 		foreach ( $this->request_views() as $view ) {
 			$class = '';
-			if ( (int) $view['id'] === $this->request_current_view() ) {
+			if ( (int) $view['id'] === (int) $this->request_current_view() ) {
 				$class = ' class="current"';
 			}
-			$link = add_query_arg( array( 'attribute_set' => $view['id'] ) );
+			$link = add_query_arg( array(
+				'attribute_set' => $view['id'],
+			) );
 			$link = remove_query_arg( 'paged', $link );
 			$result[ $view['id'] ] = sprintf(
 				'<a href="%s"%s>%s <span class="count">(%s)</span></a>',
@@ -439,8 +559,8 @@ class WPS_Mass_List_Table extends WP_List_Table {
 		}
 		return $result;
 	}
-	public function bulk_actions( $which ) {
-		submit_button( __( 'Save changes', 'wpshop' ), 'action', 'submit', false );
+	public function bulk_actions( $which = '' ) {
+		submit_button( __( 'Save changes', 'wpshop' ), 'bulk-save', 'bulk-save', false );
 			?><span class="spinner"></span><?php
 	}
 	private function _display_row( &$lvl, $item_id, $item, &$rows ) {
@@ -448,7 +568,7 @@ class WPS_Mass_List_Table extends WP_List_Table {
 			return;
 		}
 		if ( ! array_key_exists( $item['parent'], $this->items ) && 0 !== (int) $item['parent'] ) {
-			$parent_item = $this->request( $this->exclude_attribute_codes, $item['parent'] );
+			$parent_item = $this->request( $item['parent'] );
 			$this->items[ $item['parent'] ] = $parent_item[0];
 		}
 		if ( array_key_exists( $item['parent'], $rows ) ) {
@@ -477,7 +597,7 @@ class WPS_Mass_List_Table extends WP_List_Table {
 		}
 	}
 	public function single_row( $item ) {
-		$item['title'] = $item['lvl'] . $item['title'];
+		$item['title'] = isset( $item['lvl'] ) ? $item['lvl'] . $item['title'] : $item['title'];
 		parent::single_row( $item );
 	}
 	public function views() {
